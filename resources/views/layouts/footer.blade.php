@@ -1,0 +1,7 @@
+
+
+    @livewireScripts
+</body>
+</html>
+
+
