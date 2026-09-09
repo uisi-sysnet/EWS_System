@@ -24,11 +24,14 @@ class SendSystemStatusImageReport extends Command
     private const CARD_RADIUS   = 20;
     private const CARD_PADDING  = 34;  // white card -> inner content
     private const HEADER_HEIGHT = 96;
+    private const BANNER_HEIGHT = 52;  // at-a-glance overall status strip, directly under the header
 
     private const COL_GAP          = 40;
-    private const PIE_DIAMETER     = 150;
+    private const PIE_DIAMETER     = 160;
+    private const DONUT_HOLE_RATIO = 0.62; // hole diameter as a fraction of PIE_DIAMETER
     private const MAX_OFFLINE_ROWS = 12;
     private const ROW_HEIGHT       = 26;
+    private const STALE_HOURS      = 24;   // "last seen" older than this is flagged red in the table
 
     // Edit this wording to taste — layout below reflows automatically to fit
     // however many lines it wraps to.
@@ -58,6 +61,7 @@ class SendSystemStatusImageReport extends Command
         $sirenOffline       = $sirenCounts['offline'] ?? 0;
 
         $path = $this->renderImage(
+            $beaconOnline,
             $beaconOffline,
             $beaconTotal,
             $offlineBeacons,
@@ -83,6 +87,7 @@ class SendSystemStatusImageReport extends Command
      * @param \Illuminate\Support\Collection<int, Beacon> $offlineBeacons
      */
     private function renderImage(
+        int $beaconOnline,
         int $beaconOffline,
         int $beaconTotal,
         $offlineBeacons,
@@ -92,6 +97,18 @@ class SendSystemStatusImageReport extends Command
     ): string {
         $beaconLabel = StatusThreshold::label($beaconOffline, $beaconTotal);
         $sirenLabel  = $sirenDataAvailable ? StatusThreshold::label($sirenOffline, $sirenTotal) : 'Unknown';
+
+        // Combined, top-line figure for the banner — the one number someone
+        // glancing at their phone actually needs first.
+        $overallTotal   = $beaconTotal + ($sirenDataAvailable ? $sirenTotal : 0);
+        $overallOffline = $beaconOffline + ($sirenDataAvailable ? $sirenOffline : 0);
+        $overallLabel   = $overallTotal > 0 ? StatusThreshold::label($overallOffline, $overallTotal) : 'Unknown';
+
+        $bannerText = match (true) {
+            $overallTotal === 0    => 'STATUS UNKNOWN — no devices reporting',
+            $overallOffline === 0  => "ALL SYSTEMS NORMAL — all {$overallTotal} devices online",
+            default                => strtoupper($overallLabel) . " — {$overallOffline} of {$overallTotal} devices offline",
+        };
 
         // Fonts are resolved before layout math because the description and
         // disclaimer paragraphs are word-wrapped up front (their line count
@@ -121,14 +138,16 @@ class SendSystemStatusImageReport extends Command
         $leftX    = $innerX;
         $rightX   = $innerX + $colWidth + self::COL_GAP;
 
-        $contentTopY = self::OUTER_MARGIN + self::HEADER_HEIGHT + self::CARD_PADDING;
+        $bannerY     = self::OUTER_MARGIN + self::HEADER_HEIGHT;
+        $contentTopY = $bannerY + self::BANNER_HEIGHT + self::CARD_PADDING;
         $descY       = $contentTopY;
         $statusRowY  = $descY + $descHeight + 18;
         $pieTopY     = $statusRowY + 46;
         $pieCy       = $pieTopY + (self::PIE_DIAMETER / 2);
-        $captionY    = $pieTopY + self::PIE_DIAMETER + 22;
+        $captionY    = $pieTopY + self::PIE_DIAMETER + 20;
+        $legendY     = $captionY + 24;
 
-        $tableCardY   = $captionY + 46;
+        $tableCardY   = $legendY + 34;
         $tableHeaderH = 40;
         $tableBodyH   = ($rowsShown + $noteRows) * self::ROW_HEIGHT;
         $tableCardH   = $tableHeaderH + $tableBodyH + 20;
@@ -186,6 +205,10 @@ class SendSystemStatusImageReport extends Command
         $this->drawRightAlignedText($img, $now->format('F j, Y'), $cardX + $cardW - self::CARD_PADDING, self::OUTER_MARGIN + 30, $fontReg, 13, $palette['white']);
         $this->drawRightAlignedText($img, $now->format('g:i A'), $cardX + $cardW - self::CARD_PADDING, self::OUTER_MARGIN + 50, $fontReg, 13, $palette['white_dim']);
 
+        // --- Overall status banner: the single fact someone glancing at the
+        // image needs first, before reading anything else on the card. ---
+        $this->drawOverallBanner($img, $cardX, (int) $bannerY, $cardW, self::BANNER_HEIGHT, $overallLabel, $bannerText, $fontBold, $palette);
+
         // --- Description ---
         $this->drawWrappedText($img, $descLines, $innerX, (int) $descY, $descLineHeight, $fontReg, 12, $palette['text']);
 
@@ -194,47 +217,72 @@ class SendSystemStatusImageReport extends Command
         $this->drawStatusPill($img, $rightX, $statusRowY, 'SIREN STATUS', $sirenLabel, $fontBold, $fontReg, $palette);
 
         // --- Divider between columns ---
-        imageline($img, (int) ($innerX + $colWidth + self::COL_GAP / 2), (int) $pieTopY - 4, (int) ($innerX + $colWidth + self::COL_GAP / 2), (int) $captionY + 18, $palette['border']);
+        imageline($img, (int) ($innerX + $colWidth + self::COL_GAP / 2), (int) $pieTopY - 4, (int) ($innerX + $colWidth + self::COL_GAP / 2), (int) $legendY + 14, $palette['border']);
 
-        // --- Pie charts ---
+        // --- Donut charts with the offline % printed in the center, so the
+        // headline number reads without having to compare slice sizes. ---
         $leftPieCx  = (int) ($leftX + ($colWidth / 2));
         $rightPieCx = (int) ($rightX + ($colWidth / 2));
+        $holeDiameter = (int) round(self::PIE_DIAMETER * self::DONUT_HOLE_RATIO);
 
-        $this->drawPie($img, $leftPieCx, (int) $pieCy, self::PIE_DIAMETER, $beaconOffline, $beaconTotal, $palette['red'], $palette['green'], $palette['gray_badge_bg']);
+        $this->drawDonut($img, $leftPieCx, (int) $pieCy, self::PIE_DIAMETER, $holeDiameter, $beaconOffline, $beaconTotal, $fontBold, $palette);
+
         if ($sirenDataAvailable) {
-            $this->drawPie($img, $rightPieCx, (int) $pieCy, self::PIE_DIAMETER, $sirenOffline, $sirenTotal, $palette['red'], $palette['green'], $palette['gray_badge_bg']);
+            $this->drawDonut($img, $rightPieCx, (int) $pieCy, self::PIE_DIAMETER, $holeDiameter, $sirenOffline, $sirenTotal, $fontBold, $palette);
         } else {
             imagefilledellipse($img, $rightPieCx, (int) $pieCy, self::PIE_DIAMETER, self::PIE_DIAMETER, $palette['gray_badge_bg']);
+            imagefilledellipse($img, $rightPieCx, (int) $pieCy, $holeDiameter, $holeDiameter, $palette['card']);
+            $this->drawCenteredText($img, 'N/A', $rightPieCx, (int) $pieCy - 8, $fontBold, 18, $palette['text_muted']);
         }
 
-        $this->drawCenteredText($img, "{$beaconOffline} / {$beaconTotal} offline", $leftPieCx, (int) $captionY, $fontBold, 13, $palette['text']);
-        $this->drawCenteredText(
-            $img,
-            $sirenDataAvailable ? "{$sirenOffline} / {$sirenTotal} offline" : 'Data unavailable',
-            $rightPieCx,
-            (int) $captionY,
-            $fontBold,
-            13,
-            $sirenDataAvailable ? $palette['text'] : $palette['text_muted']
-        );
-        // Always shown: siren counts are aggregate-only — individual siren
-        // stations aren't tracked the way beacons are (see StatusThreshold usage above).
-        $this->drawCenteredText($img, 'Per-station detail not yet available', $rightPieCx, (int) $captionY + 20, $fontReg, 10, $palette['text_muted']);
+        // --- Legend rows: colored dot + count, directly under each chart, so
+        // the color coding is spelled out rather than left implicit. ---
+        if ($beaconTotal > 0) {
+            $this->drawLegendRow($img, $leftPieCx, (int) $legendY, [
+                [$palette['green'], "Online:  {$beaconOnline}"],
+                [$palette['red'], "Offline:  {$beaconOffline}"],
+            ], $fontReg, 11, $palette['text']);
+        } else {
+            $this->drawCenteredText($img, 'No devices reporting', $leftPieCx, (int) $legendY - 5, $fontReg, 11, $palette['text_muted']);
+        }
 
-        // --- Offline beacon table (now spans the full card width) ---
+        if ($sirenDataAvailable) {
+            $sirenOnline = $sirenTotal - $sirenOffline;
+            $this->drawLegendRow($img, $rightPieCx, (int) $legendY, [
+                [$palette['green'], "Online:  {$sirenOnline}"],
+                [$palette['red'], "Offline:  {$sirenOffline}"],
+            ], $fontReg, 11, $palette['text']);
+        } else {
+            // Sirens are aggregate-only — individual siren stations aren't
+            // tracked the way beacons are (see StatusThreshold usage above).
+            $this->drawCenteredText($img, 'Per-station detail not available', $rightPieCx, (int) $legendY - 5, $fontReg, 10, $palette['text_muted']);
+        }
+
+        // --- Offline beacon table (spans the full card width) ---
         $tableCardW = (int) $innerW;
+        [$tableAccentFg, $tableAccentBg] = $offlineBeacons->isEmpty()
+            ? [$palette['green'], $palette['green_bg']]
+            : [$palette['red'], $palette['red_bg']];
+
         $this->roundRect($img, $innerX, (int) $tableCardY, $tableCardW, (int) $tableCardH, 12, $palette['row_stripe'], ['tl', 'tr', 'bl', 'br']);
-        $this->roundRect($img, $innerX, (int) $tableCardY, $tableCardW, $tableHeaderH, 12, $palette['border'], ['tl', 'tr']);
+        $this->roundRect($img, $innerX, (int) $tableCardY, $tableCardW, $tableHeaderH, 12, $tableAccentBg, ['tl', 'tr']);
 
         $padX         = 18;
-        $nameColX     = $innerX + $padX + 40;
+        $dotColX      = $innerX + $padX;
+        $noColX       = $dotColX + 20;
+        $nameColX     = $noColX + 34;
         $lastSeenColX = $innerX + $tableCardW - $padX - 150;
 
-        $this->drawText($img, 'LIST OF OFFLINE STATIONS', $innerX + $padX, (int) $tableCardY + 14, $fontBold, 11, $palette['text']);
+        $tableTitle = $offlineBeacons->isEmpty()
+            ? 'OFFLINE STATIONS — NONE'
+            : 'OFFLINE STATIONS (' . $offlineBeacons->count() . ')';
+        $this->drawText($img, $tableTitle, $innerX + $padX, (int) $tableCardY + 14, $fontBold, 11, $tableAccentFg);
         $headerRowY = $tableCardY + $tableHeaderH;
-        $this->drawText($img, 'NO.', $innerX + $padX, (int) $headerRowY + 6, $fontReg, 10, $palette['text_muted']);
+        $this->drawText($img, 'NO.', $noColX, (int) $headerRowY + 6, $fontReg, 10, $palette['text_muted']);
         $this->drawText($img, 'NAME', $nameColX, (int) $headerRowY + 6, $fontReg, 10, $palette['text_muted']);
         $this->drawText($img, 'LAST SEEN', $lastSeenColX, (int) $headerRowY + 6, $fontReg, 10, $palette['text_muted']);
+
+        $staleCutoff = now()->subHours(self::STALE_HOURS);
 
         $rowY = $headerRowY + 20;
         $i = 1;
@@ -242,21 +290,29 @@ class SendSystemStatusImageReport extends Command
             if ($i % 2 === 0) {
                 imagefilledrectangle($img, $innerX + 4, (int) $rowY - 4, $innerX + $tableCardW - 4, (int) $rowY + self::ROW_HEIGHT - 8, $palette['card']);
             }
+
+            // Long-dead stations (no check-in in 24h+) are flagged red on the
+            // timestamp itself, so a scan down the list shows urgency, not
+            // just a flat list of names.
+            $isStale = $beacon->last_seen_at === null || $beacon->last_seen_at->lt($staleCutoff);
             $lastSeen = $beacon->last_seen_at ? $beacon->last_seen_at->format('M j, g:i A') : 'Never';
-            $this->drawText($img, (string) $i, $innerX + $padX, (int) $rowY, $fontReg, 11, $palette['text']);
+            $lastSeenColor = $isStale ? $palette['red'] : $palette['text'];
+
+            imagefilledellipse($img, $dotColX + 4, (int) $rowY + 4, 8, 8, $palette['red']);
+            $this->drawText($img, (string) $i, $noColX, (int) $rowY, $fontReg, 11, $palette['text']);
             $this->drawText($img, Str::limit($beacon->name ?? 'Unnamed', 60), $nameColX, (int) $rowY, $fontReg, 11, $palette['text']);
-            $this->drawText($img, $lastSeen, $lastSeenColX, (int) $rowY, $fontReg, 11, $palette['text']);
+            $this->drawText($img, $lastSeen, $lastSeenColX, (int) $rowY, $fontReg, 11, $lastSeenColor);
             $rowY += self::ROW_HEIGHT;
             $i++;
         }
 
         if ($extraRows > 0) {
-            $this->drawText($img, "+ {$extraRows} more", $innerX + $padX, (int) $rowY, $fontReg, 11, $palette['text_muted']);
+            $this->drawText($img, "+ {$extraRows} more", $noColX, (int) $rowY, $fontReg, 11, $palette['text_muted']);
             $rowY += self::ROW_HEIGHT;
         }
 
         if ($offlineBeacons->isEmpty()) {
-            $this->drawText($img, 'No offline beacons — all stations reporting.', $innerX + $padX, (int) $rowY, $fontReg, 11, $palette['text_muted']);
+            $this->drawText($img, 'No offline beacons — all stations reporting.', $noColX, (int) $rowY, $fontReg, 11, $palette['text_muted']);
         }
 
         // --- Disclaimer ---
@@ -287,6 +343,18 @@ class SendSystemStatusImageReport extends Command
     }
 
     /**
+     * Full-width strip directly under the header giving the single combined
+     * verdict ("ALL SYSTEMS NORMAL" / "CRITICAL — N of M devices offline")
+     * so the report's headline fact doesn't require reading the rest of it.
+     */
+    private function drawOverallBanner($img, int $cardX, int $y, int $cardW, int $height, string $label, string $text, ?string $fontBold, array $palette): void
+    {
+        [$fg, $bg] = $this->statusColors($label, $palette);
+        imagefilledrectangle($img, $cardX, $y, $cardX + $cardW, $y + $height, $bg);
+        $this->drawCenteredText($img, $text, (int) ($cardX + $cardW / 2), $y + (int) (($height - 14) / 2), $fontBold, 15, $fg);
+    }
+
+    /**
      * Draws an uppercase section label with a colored pill badge beneath it
      * (red/green/gray for Critical/Normal/Unknown), matching the status-chip
      * look used elsewhere in the dashboard UI.
@@ -295,11 +363,7 @@ class SendSystemStatusImageReport extends Command
     {
         $this->drawText($img, $label, (int) $x, (int) $y, $fontBold, 12, $palette['text_muted']);
 
-        [$fg, $bg] = match ($statusLabel) {
-            'Critical' => [$palette['red'], $palette['red_bg']],
-            'Normal'   => [$palette['green'], $palette['green_bg']],
-            default    => [$palette['gray_badge'], $palette['gray_badge_bg']],
-        };
+        [$fg, $bg] = $this->statusColors($statusLabel, $palette);
 
         $badgeText = strtoupper($statusLabel);
         $badgeH    = 24;
@@ -309,6 +373,16 @@ class SendSystemStatusImageReport extends Command
 
         $this->roundRect($img, $badgeX, $badgeY, $badgeW, $badgeH, (int) ($badgeH / 2), $bg, ['tl', 'tr', 'bl', 'br']);
         $this->drawCenteredText($img, $badgeText, (int) ($badgeX + $badgeW / 2), $badgeY + 5, $fontBold, 11, $fg);
+    }
+
+    /** Shared red/green/gray mapping used by both the pill badges and the overall banner. */
+    private function statusColors(string $label, array $palette): array
+    {
+        return match ($label) {
+            'Critical' => [$palette['red'], $palette['red_bg']],
+            'Normal'   => [$palette['green'], $palette['green_bg']],
+            default    => [$palette['gray_badge'], $palette['gray_badge_bg']],
+        };
     }
 
     /**
@@ -394,6 +468,33 @@ class SendSystemStatusImageReport extends Command
         $this->drawText($img, $text, (int) ($rightX - $width), $y, $font, $size, $color);
     }
 
+    /**
+     * Draws a horizontal row of "● label" items centered as one group at
+     * ($centerX, $y) — used under each chart to spell out what the colors mean
+     * instead of leaving it implicit.
+     *
+     * @param array<int, array{0:int,1:string}> $items Pairs of [color, label]
+     */
+    private function drawLegendRow($img, int $centerX, int $y, array $items, ?string $font, int $size, int $textColor): void
+    {
+        $dotDiameter = 10;
+        $gapDotText  = 6;
+        $itemGap     = 20;
+
+        $itemWidths = array_map(
+            fn (array $item) => $dotDiameter + $gapDotText + $this->textWidth($font, $size, $item[1]),
+            $items
+        );
+        $totalWidth = array_sum($itemWidths) + $itemGap * (count($items) - 1);
+
+        $x = $centerX - (int) round($totalWidth / 2);
+        foreach ($items as $index => [$color, $label]) {
+            imagefilledellipse($img, $x + (int) ($dotDiameter / 2), $y, $dotDiameter, $dotDiameter, $color);
+            $this->drawText($img, $label, $x + $dotDiameter + $gapDotText, $y - (int) ($size / 2) - 1, $font, $size, $textColor);
+            $x += $itemWidths[$index] + $itemGap;
+        }
+    }
+
     /** Greedy word-wrap: breaks $text into lines no wider than $maxWidth. */
     private function wrapText(?string $font, int $size, string $text, int $maxWidth): array
     {
@@ -430,14 +531,25 @@ class SendSystemStatusImageReport extends Command
     }
 
     /**
-     * offline/total rendered as a red slice over a green base circle, starting at 12
-     * o'clock. Drawing green-then-red-on-top avoids floating point angle math having
-     * to add up to exactly 360 - much less fragile than two precise arcs.
+     * Donut chart: same red-over-green pie construction as before (offline
+     * slice drawn on top of a full green base circle, starting at 12 o'clock,
+     * which sidesteps floating-point angle math having to add up to exactly
+     * 360), but with the middle punched out and the offline % printed in the
+     * hole. The number in the center is the actual "at a glance" payload —
+     * comparing slice sizes by eye is what this replaces.
      */
-    private function drawPie($img, int $cx, int $cy, int $diameter, int $offline, int $total, int $red, int $green, int $empty): void
+    private function drawDonut($img, int $cx, int $cy, int $diameter, int $holeDiameter, int $offline, int $total, ?string $fontBold, array $palette): void
     {
+        $red    = $palette['red'];
+        $green  = $palette['green'];
+        $empty  = $palette['gray_badge_bg'];
+        $white  = $palette['card'];
+        $muted  = $palette['text_muted'];
+
         if ($total <= 0) {
             imagefilledellipse($img, $cx, $cy, $diameter, $diameter, $empty);
+            imagefilledellipse($img, $cx, $cy, $holeDiameter, $holeDiameter, $white);
+            $this->drawCenteredText($img, 'N/A', $cx, $cy - 8, $fontBold, 16, $muted);
             return;
         }
 
@@ -445,23 +557,30 @@ class SendSystemStatusImageReport extends Command
 
         $offlineDegrees = ($offline / $total) * 360;
 
-        if ($offlineDegrees <= 0.1) {
-            return;
+        if ($offlineDegrees > 0.1) {
+            if ($offlineDegrees >= 359.9) {
+                imagefilledellipse($img, $cx, $cy, $diameter, $diameter, $red);
+            } else {
+                $start = 270;
+                $end   = 270 + $offlineDegrees;
+
+                if ($end <= 360) {
+                    imagefilledarc($img, $cx, $cy, $diameter, $diameter, $start, (int) round($end), $red, IMG_ARC_PIE);
+                } else {
+                    imagefilledarc($img, $cx, $cy, $diameter, $diameter, $start, 360, $red, IMG_ARC_PIE);
+                    imagefilledarc($img, $cx, $cy, $diameter, $diameter, 0, (int) round($end - 360), $red, IMG_ARC_PIE);
+                }
+            }
         }
 
-        if ($offlineDegrees >= 359.9) {
-            imagefilledellipse($img, $cx, $cy, $diameter, $diameter, $red);
-            return;
-        }
+        // Punch the hole to turn the pie into a donut, leaving room for the
+        // center KPI text.
+        imagefilledellipse($img, $cx, $cy, $holeDiameter, $holeDiameter, $white);
 
-        $start = 270;
-        $end = 270 + $offlineDegrees;
+        $percentOffline = (int) round(($offline / $total) * 100);
+        $bigColor       = $offline > 0 ? $red : $green;
 
-        if ($end <= 360) {
-            imagefilledarc($img, $cx, $cy, $diameter, $diameter, $start, (int) round($end), $red, IMG_ARC_PIE);
-        } else {
-            imagefilledarc($img, $cx, $cy, $diameter, $diameter, $start, 360, $red, IMG_ARC_PIE);
-            imagefilledarc($img, $cx, $cy, $diameter, $diameter, 0, (int) round($end - 360), $red, IMG_ARC_PIE);
-        }
+        $this->drawCenteredText($img, "{$percentOffline}%", $cx, $cy - 11, $fontBold, 22, $bigColor);
+        $this->drawCenteredText($img, 'OFFLINE', $cx, $cy + 11, $fontBold, 9, $muted);
     }
 }
