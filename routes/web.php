@@ -60,6 +60,11 @@ Route::middleware('auth')->group(function () {
         // routes/web.php (or api.php)
         Route::get('/barangays/geojson', [App\Http\Controllers\BarangayController::class, 'getGeoJson']);
 
+        Route::get('/api/telegram/status', function () {
+            $connected = app(\App\Services\TelegramNotifier::class)->checkConnection();
+            return response()->json(['connected' => $connected]);
+        })->name('api.telegram.status');
+
         Route::get('/controller', function () {
             $locations = \App\Models\Location::orderBy('location_name')->get();
 

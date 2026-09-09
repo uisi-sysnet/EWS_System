@@ -144,6 +144,78 @@ class ApiController extends Controller
         ]);
     }
 
+    /**
+     * Resolve the named (or most-recently-used) API connection and GET a path on it.
+     * Same connection-lookup + request logic as fetchApiData(), pulled out so it can
+     * also be called from console commands (no HTTP round trip, no auth session needed).
+     * Returns the decoded JSON body, or null on any failure (logged where relevant).
+     */
+    public function callExternalApi(string $path, ?string $connectionName = null): ?array
+    {
+        $query = $this->getGlobalConnectionQuery();
+
+        $connection = $connectionName
+            ? $query->where('name', $connectionName)->first()
+            : $query->orderByDesc('last_used_at')->first();
+
+        if (!$connection) {
+            Log::warning('callExternalApi: no active API connection found', [
+                'connection_name' => $connectionName,
+            ]);
+            return null;
+        }
+
+        $fullUrl = rtrim($connection->endpoint_url, '/') . '/' . ltrim($path, '/');
+
+        try {
+            $response = Http::withOptions(['verify' => false])
+                ->withHeaders([
+                    'Accept' => 'application/json',
+                    $connection->header_name => $connection->header_value,
+                ])
+                ->timeout(12)
+                ->get($fullUrl);
+
+            if ($response->successful()) {
+                $connection->touch('last_used_at');
+                return $response->json();
+            }
+
+            Log::error('callExternalApi: request failed', [
+                'url'    => $fullUrl,
+                'status' => $response->status(),
+                'body'   => $response->body(),
+            ]);
+            return null;
+        } catch (\Throwable $e) {
+            Log::error('callExternalApi: connection error: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Siren total/offline counts, from the same "Siren" connection + /api/Data/Status
+     * endpoint the dashboard polls (see updateDeviceStatusUI() in controller.blade.php).
+     * Returns null if the siren API couldn't be reached.
+     */
+    public function getSirenStatusCounts(): ?array
+    {
+        $data = $this->callExternalApi('/api/Data/Status', 'Siren');
+
+        if ($data === null) {
+            return null;
+        }
+
+        $total   = (int) ($data['totalConnectionsCount'] ?? 0);
+        $offline = (int) ($data['badConnectionsCount'] ?? 0);
+
+        return [
+            'total'   => $total,
+            'offline' => $offline,
+            'online'  => $total - $offline,
+        ];
+    }
+
     public function fetchApiData(Request $request): JsonResponse
     {
         $path = $request->query('path');

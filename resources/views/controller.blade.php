@@ -2619,18 +2619,44 @@ function restoreOriginal(el) {
 </script>
 <script src="{{ asset('js/serial.js') }}"></script>
 
+<!-- Telegram connection status indicator -->
+<div id="telegramStatus" class="fixed bottom-3 left-3 z-40 flex items-center gap-2 bg-white dark:bg-gray-800 rounded-full shadow-md border border-gray-200 dark:border-gray-700 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300">
+    <span id="telegramStatusDot" class="w-2 h-2 rounded-full bg-gray-400"></span>
+    <span id="telegramStatusText">Checking Telegram…</span>
+</div>
+<script>
+    (function() {
+        const dot = document.getElementById('telegramStatusDot');
+        const text = document.getElementById('telegramStatusText');
+
+        async function checkTelegramStatus() {
+            try {
+                const res = await fetch('{{ route("api.telegram.status") }}', {
+                    headers: { 'Accept': 'application/json' }
+                });
+                const data = await res.json();
+
+                if (data.connected) {
+                    dot.className = 'w-2 h-2 rounded-full bg-munti-green-1';
+                    text.textContent = 'Telegram connected';
+                } else {
+                    dot.className = 'w-2 h-2 rounded-full bg-munti-red-0';
+                    text.textContent = 'Telegram disconnected';
+                }
+            } catch (err) {
+                dot.className = 'w-2 h-2 rounded-full bg-munti-red-0';
+                text.textContent = 'Telegram unreachable';
+            }
+        }
+
+        checkTelegramStatus();
+        setInterval(checkTelegramStatus, 60000); // re-check every 60s
+    })();
+</script>
+
 @include('layouts.footer')
 @else
 <script>
     window.location = "{{ route('login') }}";
 </script>
 @endauth
-
-
-
-
-
-
-
-
-

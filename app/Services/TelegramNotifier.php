@@ -47,6 +47,29 @@ class TelegramNotifier
     }
 
     /**
+     * Check whether the bot can currently reach Telegram with a valid token.
+     * Calls the lightweight getMe endpoint rather than sending a message,
+     * so this is safe to poll from the dashboard without spamming the chat.
+     */
+    public function checkConnection(): bool
+    {
+        $token = config('services.telegram.bot_token');
+
+        if (! $token) {
+            return false;
+        }
+
+        try {
+            $response = Http::timeout(5)->get("https://api.telegram.org/bot{$token}/getMe");
+
+            return $response->successful() && $response->json('ok') === true;
+        } catch (\Throwable $e) {
+            Log::error('Telegram checkConnection error: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
      * Send a photo (by local file path) with an optional caption.
      * Kept here now so the later "status snapshot image" feature
      * can reuse this same service without another round trip.
