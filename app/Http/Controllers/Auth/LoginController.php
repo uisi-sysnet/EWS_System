@@ -17,6 +17,12 @@ class LoginController extends Controller
 {
     public function showLoginForm(): RedirectResponse|View
     {
+        // No credentials in the database yet -> send the user to initial setup
+        // instead of a login form nobody can actually log into.
+        if (! User::query()->exists()) {
+            return redirect()->route('setup');
+        }
+
         return Auth::check()
             ? redirect()->intended('/dashboard')
             : view('auth.login');

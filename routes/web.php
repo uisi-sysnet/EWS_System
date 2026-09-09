@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Auth\LoginController;
+use App\Http\Controllers\Auth\SetupController;
 use App\Http\Controllers\Settings\UserController;
 use App\Http\Controllers\Settings\LocationController;
 use App\Http\Controllers\Settings\BeaconController;
@@ -15,11 +16,24 @@ use App\Http\Controllers\BarangayController;
 
 
 
-Route::get('/', fn() => view('index'))->name('login');
+Route::get('/', function () {
+    // No credentials in the database yet -> send to initial setup
+    // instead of showing a login form nobody can log into.
+    if (! \App\Models\User::query()->exists()) {
+        return redirect()->route('setup');
+    }
+
+    return view('index');
+})->name('login');
 Route::get('/login', fn() => redirect()->route('login'));
 
 Route::post('/login',  [LoginController::class, 'login'])->name('login.post');
 Route::post('/logout', [LoginController::class, 'logout'])->name('logout');
+
+// First-run setup: only reachable while the users table is empty
+// (SetupController redirects to /login itself once an account exists).
+Route::get('/setup',  [SetupController::class, 'showSetupForm'])->name('setup');
+Route::post('/setup', [SetupController::class, 'store'])->name('setup.store');
 
 
 

@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Spatie\Activitylog\Traits\LogsActivity;      // ADD THIS
 use Spatie\Activitylog\LogOptions;                // ADD THIS
+use App\Jobs\SendBeaconStatusTelegramNotification;
 
 class Beacon extends Model
 {
@@ -77,6 +78,13 @@ class Beacon extends Model
             // Only log if the 'status' field was actually changed
             if ($beacon->wasChanged('status')) {
                 self::logStatusChange($beacon);
+
+                SendBeaconStatusTelegramNotification::dispatch(
+                    $beacon->name,
+                    $beacon->location?->location_name ?? '—',
+                    $beacon->group,
+                    (bool) $beacon->status,
+                );
             }
         });
     }
