@@ -14,5 +14,6 @@ class Barangay extends Model
 
     protected $casts = [
         'properties' => 'json',
+        'boundary' => 'json',
     ];
 }

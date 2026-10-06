@@ -183,8 +183,11 @@ Route::middleware('auth')->group(function () {
 
         Route::get('/logs', [App\Http\Controllers\LogController::class, 'index'])->name('logs.index');
         Route::post('/logs', [App\Http\Controllers\LogController::class, 'store'])->name('logs.store');
+        Route::get('/settings/logs', [App\Http\Controllers\LogController::class, 'showLogsPage'])
+            ->name('settings.logs');
+        Route::post('/reports/system-status/download', [App\Http\Controllers\SystemStatusReportController::class, 'download'])
+            ->name('reports.system-status.download');
+        Route::post('/reports/system-status/telegram', [App\Http\Controllers\SystemStatusReportController::class, 'sendToTelegram'])
+            ->name('reports.system-status.telegram');
     });
 });
-
-Route::get('/settings/logs', [App\Http\Controllers\LogController::class, 'showLogsPage'])
-    ->name('settings.logs');

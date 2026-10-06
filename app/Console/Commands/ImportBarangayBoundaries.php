@@ -4,7 +4,6 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use App\Models\Barangay;
-use Illuminate\Support\Facades\DB;
 
 class ImportBarangayBoundaries extends Command
 {
@@ -34,20 +33,21 @@ class ImportBarangayBoundaries extends Command
         $failedCount = 0;
 
         foreach ($geojson['features'] as $feature) {
-            $geometry = $feature['geometry'];
-            $properties = $feature['properties'];
+            $geometry = $feature['geometry'] ?? null;
+            $properties = $feature['properties'] ?? [];
+            if (! is_array($geometry) || ! isset($geometry['type'], $geometry['coordinates'])) {
+                $this->error('Skipped a feature with invalid geometry.');
+                $failedCount++;
+                continue;
+            }
             $name = $properties['Barangay'] ?? $properties['name'] ?? 'Unknown';
 
             try {
-                DB::insert(
-                    'INSERT INTO barangays (name, properties, boundary, created_at, updated_at) 
-                    VALUES (?, ?, ST_SetSRID(ST_GeomFromGeoJSON(?), 4326), NOW(), NOW())',
-                    [
-                        $name,
-                        json_encode($properties),
-                        json_encode($geometry)
-                    ]
-                );
+                Barangay::create([
+                    'name' => $name,
+                    'properties' => $properties,
+                    'boundary' => $geometry,
+                ]);
                 $importedCount++;
             } catch (\Exception $e) {
                 $this->error("Failed to import feature: {$name}. Error: " . $e->getMessage());

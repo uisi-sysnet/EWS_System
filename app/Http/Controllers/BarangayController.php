@@ -4,27 +4,20 @@ namespace App\Http\Controllers;
 
 use App\Models\Barangay;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class BarangayController extends Controller
 {
 
     public function getGeoJson()
     {
-        $barangays = Barangay::select(
-            'id',
-            'name',
-            DB::raw('ST_AsGeoJSON(boundary) AS geojson')
-        )->get();
+        $barangays = Barangay::query()->get(['id', 'name', 'boundary']);
 
         $features = [];
 
         foreach ($barangays as $barangay) {
-            $geometry = json_decode($barangay->geojson);
-
             $features[] = [
                 'type' => 'Feature',
-                'geometry' => $geometry,
+                'geometry' => $barangay->boundary,
                 'properties' => [
                     'id' => $barangay->id,
                     'name' => $barangay->name,

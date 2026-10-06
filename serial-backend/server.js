@@ -76,15 +76,15 @@ function resetIdleTimer() {
 
 function processQueue() {
     if (isProcessing || commandQueue.length === 0) return;
+    if (!serialPortInstance || !serialPortInstance.isOpen) {
+        // Keep commands queued until a connection event (or a later enqueue)
+        // calls processQueue again. Polling here would spin while disconnected.
+        return;
+    }
+
     const entry = commandQueue.shift();
     currentCommand = entry;
     isProcessing = true;
-
-    if (!serialPortInstance || !serialPortInstance.isOpen) {
-        isProcessing = false;
-        setTimeout(processQueue, 50);
-        return;
-    }
 
     serialPortInstance.write(entry.data + "\n", (err) => {
         if (err) {

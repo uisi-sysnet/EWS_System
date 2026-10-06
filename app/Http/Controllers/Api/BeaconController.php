@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Beacon;
 use App\Models\BeaconStatusLog;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 
@@ -209,18 +210,25 @@ class BeaconController extends Controller
      */
     private function calculateUptime($history): float
     {
-        if ($history->isEmpty()) {
+        if ($history->count() < 2) {
             return 0;
         }
 
-        $totalOnlineTime = $history->reduce(function ($carry, $log) {
-            if ($log->status === 'online' && $log->duration_seconds) {
-                return $carry + $log->duration_seconds;
-            }
-            return $carry;
-        }, 0);
+        // History is newest first. The older event's status remained active
+        // until the newer event, so use it to classify each interval.
+        $totalOnlineTime = 0;
+        $totalTime = 0;
+        for ($index = 0; $index < $history->count() - 1; $index++) {
+            $newerEvent = $history[$index];
+            $olderEvent = $history[$index + 1];
+            $interval = Carbon::parse($newerEvent['event_time'])
+                ->diffInSeconds(Carbon::parse($olderEvent['event_time']));
+            $totalTime += $interval;
 
-        $totalTime = $history->first()->event_time->diffInSeconds($history->last()->event_time);
+            if ($olderEvent['status'] === 'online') {
+                $totalOnlineTime += $interval;
+            }
+        }
 
         return $totalTime > 0 ? round(($totalOnlineTime / $totalTime) * 100, 2) : 0;
     }

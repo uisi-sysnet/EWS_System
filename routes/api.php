@@ -2,7 +2,7 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Api\BarangayController;
+use App\Http\Controllers\BarangayController;
 
 use App\Http\Controllers\Api\BeaconController;
 
@@ -15,7 +15,7 @@ Route::get('/user', function (Request $request) {
 Route::post('/beacons/{beaconId}/status', [App\Http\Controllers\Api\BeaconStatusController::class, 'update'])
     ->middleware('auth');
 
-    Route::get('/barangays', [BarangayController::class, 'index']);
+    Route::get('/barangays', [BarangayController::class, 'getGeoJson']);
 
 Route::prefix('Data')
     ->middleware('apikey')

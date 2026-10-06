@@ -12,7 +12,8 @@ return new class extends Migration
             $table->id();
             $table->string('name');
             $table->json('properties')->nullable();
-            $table->geometry('boundary', 'POLYGON', 4326); 
+            // The app only displays and exports GeoJSON; spatial SQL is not used.
+            $table->json('boundary');
             $table->timestamps();
         });
     }

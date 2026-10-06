@@ -206,8 +206,22 @@ class ApiController extends Controller
             return null;
         }
 
-        $total   = (int) ($data['totalConnectionsCount'] ?? 0);
-        $offline = (int) ($data['badConnectionsCount'] ?? 0);
+        $totalValue = $data['totalConnectionsCount'] ?? null;
+        $offlineValue = $data['badConnectionsCount'] ?? null;
+        if (! is_numeric($totalValue) || ! is_numeric($offlineValue)) {
+            Log::warning('getSirenStatusCounts: response is missing valid connection counts');
+            return null;
+        }
+
+        $total = (int) $totalValue;
+        $offline = (int) $offlineValue;
+        if ($total < 0 || $offline < 0 || $offline > $total) {
+            Log::warning('getSirenStatusCounts: response contains out-of-range connection counts', [
+                'total' => $total,
+                'offline' => $offline,
+            ]);
+            return null;
+        }
 
         return [
             'total'   => $total,

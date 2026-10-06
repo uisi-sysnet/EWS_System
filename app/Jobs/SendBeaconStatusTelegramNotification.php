@@ -33,12 +33,12 @@ class SendBeaconStatusTelegramNotification implements ShouldQueue
 
         $lines = [
             sprintf('%s <b>Beacon %s</b>', $emoji, $state),
-            sprintf('Station: %s', $this->beaconName),
-            sprintf('Location: %s', $this->locationName),
+            sprintf('Station: %s', e($this->beaconName)),
+            sprintf('Location: %s', e($this->locationName)),
         ];
 
         if ($this->group) {
-            $lines[] = sprintf('Group: %s', $this->group);
+            $lines[] = sprintf('Group: %s', e($this->group));
         }
 
         $lines[] = sprintf('Time: %s', now()->format('M d, Y g:i A'));

@@ -14,17 +14,15 @@ class SendSystemStatusImageReport extends Command
     /**
      * php artisan telegram:image-status-report
      */
-    protected $signature = 'telegram:image-status-report';
+    protected $signature = 'telegram:image-status-report {--save-only : Generate the image without sending it to Telegram}';
 
     protected $description = 'Render a beacon/siren status report as an image and send it to Telegram';
 
-    // Canvas / card chrome
+    // Canvas / report layout
     private const WIDTH         = 1000;
-    private const OUTER_MARGIN  = 24;  // gray shell -> white card
-    private const CARD_RADIUS   = 20;
-    private const CARD_PADDING  = 34;  // white card -> inner content
-    private const HEADER_HEIGHT = 96;
-    private const BANNER_HEIGHT = 52;  // at-a-glance overall status strip, directly under the header
+    private const OUTER_MARGIN  = 40;
+    private const HEADER_HEIGHT = 108;
+    private const BANNER_HEIGHT = 36;
 
     private const COL_GAP          = 40;
     private const PIE_DIAMETER     = 160;
@@ -69,6 +67,11 @@ class SendSystemStatusImageReport extends Command
             $sirenTotal,
             $sirenDataAvailable
         );
+
+        if ($this->option('save-only')) {
+            $this->line($path);
+            return self::SUCCESS;
+        }
 
         $sent = $telegram->sendPhoto($path, 'Muntinlupa Emergency Warning System — Status Report');
 
@@ -121,10 +124,10 @@ class SendSystemStatusImageReport extends Command
         $extraRows = max(0, $offlineBeacons->count() - self::MAX_OFFLINE_ROWS);
         $noteRows  = ($extraRows > 0 ? 1 : 0) + ($offlineBeacons->isEmpty() ? 1 : 0);
 
-        $cardX  = self::OUTER_MARGIN;
-        $cardW  = self::WIDTH - (2 * self::OUTER_MARGIN);
-        $innerX = $cardX + self::CARD_PADDING;
-        $innerW = $cardW - (2 * self::CARD_PADDING);
+        $cardX  = 0;
+        $cardW  = self::WIDTH;
+        $innerX = self::OUTER_MARGIN;
+        $innerW = self::WIDTH - (2 * self::OUTER_MARGIN);
 
         $descLineHeight = 16;
         $descLines      = $this->wrapText($fontReg, 12, self::REPORT_DESCRIPTION, (int) $innerW);
@@ -139,16 +142,16 @@ class SendSystemStatusImageReport extends Command
         $rightX   = $innerX + $colWidth + self::COL_GAP;
 
         $bannerY     = self::OUTER_MARGIN + self::HEADER_HEIGHT;
-        $contentTopY = $bannerY + self::BANNER_HEIGHT + self::CARD_PADDING;
+        $contentTopY = $bannerY + self::BANNER_HEIGHT + 24;
         $descY       = $contentTopY;
-        $statusRowY  = $descY + $descHeight + 18;
-        $pieTopY     = $statusRowY + 46;
+        $statusRowY  = $descY + $descHeight + 24;
+        $pieTopY     = $statusRowY + 70;
         $pieCy       = $pieTopY + (self::PIE_DIAMETER / 2);
         $captionY    = $pieTopY + self::PIE_DIAMETER + 20;
         $legendY     = $captionY + 24;
 
         $tableCardY   = $legendY + 34;
-        $tableHeaderH = 40;
+        $tableHeaderH = 48;
         $tableBodyH   = ($rowsShown + $noteRows) * self::ROW_HEIGHT;
         $tableCardH   = $tableHeaderH + $tableBodyH + 20;
 
@@ -163,58 +166,55 @@ class SendSystemStatusImageReport extends Command
         $height = $cardH + (2 * self::OUTER_MARGIN);
 
         // --- Canvas + palette ---
-        // Reuses the reds/greens already used elsewhere for status (critical/normal)
-        // plus the blue already used for the report title, applied in a card-based
-        // layout (rounded panels, status pills) matching the dashboard's UI.
+        // Flat report styling follows the sample: white page, teal headings,
+        // teal table headers, subtle gray rules, and clear status colors.
         $img = imagecreatetruecolor(self::WIDTH, (int) $height);
 
         $palette = [
-            'canvas'        => imagecolorallocate($img, 226, 229, 235),
+            'canvas'        => imagecolorallocate($img, 255, 255, 255),
             'card'          => imagecolorallocate($img, 255, 255, 255),
-            'card_shadow'   => imagecolorallocate($img, 205, 209, 217),
-            'header'        => imagecolorallocate($img, 30, 82, 122),
-            'header_accent' => imagecolorallocate($img, 37, 150, 190),
+            'teal'          => imagecolorallocate($img, 20, 119, 109),
             'text'          => imagecolorallocate($img, 31, 41, 55),
-            'text_muted'    => imagecolorallocate($img, 107, 114, 128),
+            'text_muted'    => imagecolorallocate($img, 125, 130, 134),
             'white'         => imagecolorallocate($img, 255, 255, 255),
-            'white_dim'     => imagecolorallocate($img, 205, 224, 234),
-            'red'           => imagecolorallocate($img, 220, 38, 38),
-            'red_bg'        => imagecolorallocate($img, 254, 226, 226),
-            'green'         => imagecolorallocate($img, 22, 163, 74),
-            'green_bg'      => imagecolorallocate($img, 220, 245, 227),
+            'white_dim'     => imagecolorallocate($img, 232, 245, 243),
+            'red'           => imagecolorallocate($img, 231, 91, 104),
+            'red_bg'        => imagecolorallocate($img, 255, 232, 233),
+            'green'         => imagecolorallocate($img, 39, 193, 174),
+            'green_bg'      => imagecolorallocate($img, 222, 247, 241),
+            'green_badge'   => imagecolorallocate($img, 26, 156, 91),
+            'red_badge'     => imagecolorallocate($img, 209, 48, 56),
             'gray_badge'    => imagecolorallocate($img, 130, 130, 130),
             'gray_badge_bg' => imagecolorallocate($img, 231, 233, 236),
-            'border'        => imagecolorallocate($img, 228, 231, 236),
-            'row_stripe'    => imagecolorallocate($img, 246, 248, 250),
+            'border'        => imagecolorallocate($img, 218, 222, 222),
+            'row_stripe'    => imagecolorallocate($img, 247, 248, 248),
         ];
 
         imagefill($img, 0, 0, $palette['canvas']);
 
-        // --- Card shadow + body ---
-        $this->roundRect($img, $cardX + 3, self::OUTER_MARGIN + 4, $cardW, (int) $cardH, self::CARD_RADIUS, $palette['card_shadow'], ['tl', 'tr', 'bl', 'br']);
-        $this->roundRect($img, $cardX, self::OUTER_MARGIN, $cardW, (int) $cardH, self::CARD_RADIUS, $palette['card'], ['tl', 'tr', 'bl', 'br']);
-
-        // --- Header bar (rounded top only) + accent strip ---
-        $this->roundRect($img, $cardX, self::OUTER_MARGIN, $cardW, self::HEADER_HEIGHT, self::CARD_RADIUS, $palette['header'], ['tl', 'tr']);
-        imagefilledrectangle($img, $cardX, self::OUTER_MARGIN + self::HEADER_HEIGHT - 4, $cardX + $cardW, self::OUTER_MARGIN + self::HEADER_HEIGHT - 1, $palette['header_accent']);
-
-        $this->drawText($img, 'Muntinlupa Emergency Warning System', $innerX, self::OUTER_MARGIN + 26, $fontBold, 19, $palette['white']);
-        $this->drawText($img, 'Automated Status Report', $innerX, self::OUTER_MARGIN + 52, $fontReg, 12, $palette['white_dim']);
+        // --- Report heading on a clean white page ---
+        $this->drawText($img, 'Muntinlupa Emergency Warning System Status Report', $innerX, self::OUTER_MARGIN - 4, $fontBold, 26, $palette['teal']);
+        $this->drawText($img, 'Developed by Uplink Integrated Solutions Inc.', $innerX, self::OUTER_MARGIN + 30, $fontReg, 12, $palette['text_muted']);
 
         $now = now();
-        $this->drawRightAlignedText($img, $now->format('F j, Y'), $cardX + $cardW - self::CARD_PADDING, self::OUTER_MARGIN + 30, $fontReg, 13, $palette['white']);
-        $this->drawRightAlignedText($img, $now->format('g:i A'), $cardX + $cardW - self::CARD_PADDING, self::OUTER_MARGIN + 50, $fontReg, 13, $palette['white_dim']);
+        $this->drawText($img, 'Report Date/Time: ' . $now->format('F j, Y  g:i A'), $innerX, self::OUTER_MARGIN + 52, $fontReg, 12, $palette['text_muted']);
+        imageline($img, $innerX, self::OUTER_MARGIN + self::HEADER_HEIGHT, $innerX + $innerW, self::OUTER_MARGIN + self::HEADER_HEIGHT, $palette['teal']);
 
-        // --- Overall status banner: the single fact someone glancing at the
-        // image needs first, before reading anything else on the card. ---
-        $this->drawOverallBanner($img, $cardX, (int) $bannerY, $cardW, self::BANNER_HEIGHT, $overallLabel, $bannerText, $fontBold, $palette);
+        // --- Overall status summary ---
+        $overallTextColor = match ($overallLabel) {
+            'Critical' => $palette['red_badge'],
+            'Normal' => $palette['teal'],
+            default => $palette['gray_badge'],
+        };
+        $this->drawCenteredText($img, $bannerText, self::WIDTH / 2, (int) $bannerY + 9, $fontBold, 15, $overallTextColor);
 
         // --- Description ---
         $this->drawWrappedText($img, $descLines, $innerX, (int) $descY, $descLineHeight, $fontReg, 12, $palette['text']);
 
-        // --- Status row: label + colored pill per column ---
-        $this->drawStatusPill($img, $leftX, $statusRowY, 'BEACON STATUS', $beaconLabel, $fontBold, $fontReg, $palette);
-        $this->drawStatusPill($img, $rightX, $statusRowY, 'SIREN STATUS', $sirenLabel, $fontBold, $fontReg, $palette);
+        // --- Section heading and per-system status badges ---
+        $this->drawText($img, 'Station Status Overview', $innerX, (int) $statusRowY, $fontBold, 18, $palette['teal']);
+        $this->drawStatusPill($img, $leftX, $statusRowY + 28, 'BEACON STATUS', $beaconLabel, $fontBold, $fontReg, $palette);
+        $this->drawStatusPill($img, $rightX, $statusRowY + 28, 'SIREN STATUS', $sirenLabel, $fontBold, $fontReg, $palette);
 
         // --- Divider between columns ---
         imageline($img, (int) ($innerX + $colWidth + self::COL_GAP / 2), (int) $pieTopY - 4, (int) ($innerX + $colWidth + self::COL_GAP / 2), (int) $legendY + 14, $palette['border']);
@@ -258,14 +258,9 @@ class SendSystemStatusImageReport extends Command
             $this->drawCenteredText($img, 'Per-station detail not available', $rightPieCx, (int) $legendY - 5, $fontReg, 10, $palette['text_muted']);
         }
 
-        // --- Offline beacon table (spans the full card width) ---
+        // --- Offline beacon table ---
         $tableCardW = (int) $innerW;
-        [$tableAccentFg, $tableAccentBg] = $offlineBeacons->isEmpty()
-            ? [$palette['green'], $palette['green_bg']]
-            : [$palette['red'], $palette['red_bg']];
-
-        $this->roundRect($img, $innerX, (int) $tableCardY, $tableCardW, (int) $tableCardH, 12, $palette['row_stripe'], ['tl', 'tr', 'bl', 'br']);
-        $this->roundRect($img, $innerX, (int) $tableCardY, $tableCardW, $tableHeaderH, 12, $tableAccentBg, ['tl', 'tr']);
+        imagefilledrectangle($img, $innerX, (int) $tableCardY, $innerX + $tableCardW, (int) $tableCardY + $tableCardH, $palette['card']);
 
         $padX         = 18;
         $dotColX      = $innerX + $padX;
@@ -276,15 +271,16 @@ class SendSystemStatusImageReport extends Command
         $tableTitle = $offlineBeacons->isEmpty()
             ? 'OFFLINE STATIONS — NONE'
             : 'OFFLINE STATIONS (' . $offlineBeacons->count() . ')';
-        $this->drawText($img, $tableTitle, $innerX + $padX, (int) $tableCardY + 14, $fontBold, 11, $tableAccentFg);
-        $headerRowY = $tableCardY + $tableHeaderH;
-        $this->drawText($img, 'NO.', $noColX, (int) $headerRowY + 6, $fontReg, 10, $palette['text_muted']);
-        $this->drawText($img, 'NAME', $nameColX, (int) $headerRowY + 6, $fontReg, 10, $palette['text_muted']);
-        $this->drawText($img, 'LAST SEEN', $lastSeenColX, (int) $headerRowY + 6, $fontReg, 10, $palette['text_muted']);
+        $this->drawText($img, $tableTitle, $innerX, (int) $tableCardY + 2, $fontBold, 15, $palette['teal']);
+        $headerRowY = $tableCardY + 24;
+        imagefilledrectangle($img, $innerX, (int) $headerRowY, $innerX + $tableCardW, (int) $headerRowY + 24, $palette['teal']);
+        $this->drawText($img, 'NO.', $noColX, (int) $headerRowY + 6, $fontBold, 10, $palette['white']);
+        $this->drawText($img, 'NAME', $nameColX, (int) $headerRowY + 6, $fontBold, 10, $palette['white']);
+        $this->drawText($img, 'LAST SEEN', $lastSeenColX, (int) $headerRowY + 6, $fontBold, 10, $palette['white']);
 
         $staleCutoff = now()->subHours(self::STALE_HOURS);
 
-        $rowY = $headerRowY + 20;
+        $rowY = $headerRowY + 31;
         $i = 1;
         foreach ($offlineBeacons->take(self::MAX_OFFLINE_ROWS) as $beacon) {
             if ($i % 2 === 0) {
@@ -320,7 +316,7 @@ class SendSystemStatusImageReport extends Command
         $this->drawWrappedText($img, $disclaimerLines, $innerX, (int) $disclaimerTextY, $disclaimerLineHeight, $fontReg, 9, $palette['text_muted']);
 
         // --- Footer ---
-        imageline($img, $cardX + self::CARD_PADDING, (int) $footerRuleY, $cardX + $cardW - self::CARD_PADDING, (int) $footerRuleY, $palette['border']);
+        imageline($img, $innerX, (int) $footerRuleY, $innerX + $innerW, (int) $footerRuleY, $palette['border']);
         $this->drawCenteredText(
             $img,
             'Computer-generated report — developed by Uplink Integrated Solutions Inc.',
@@ -371,7 +367,7 @@ class SendSystemStatusImageReport extends Command
         $badgeX    = (int) $x;
         $badgeY    = (int) $y + 18;
 
-        $this->roundRect($img, $badgeX, $badgeY, $badgeW, $badgeH, (int) ($badgeH / 2), $bg, ['tl', 'tr', 'bl', 'br']);
+        imagefilledrectangle($img, $badgeX, $badgeY, $badgeX + $badgeW, $badgeY + $badgeH, $bg);
         $this->drawCenteredText($img, $badgeText, (int) ($badgeX + $badgeW / 2), $badgeY + 5, $fontBold, 11, $fg);
     }
 
@@ -379,9 +375,9 @@ class SendSystemStatusImageReport extends Command
     private function statusColors(string $label, array $palette): array
     {
         return match ($label) {
-            'Critical' => [$palette['red'], $palette['red_bg']],
-            'Normal'   => [$palette['green'], $palette['green_bg']],
-            default    => [$palette['gray_badge'], $palette['gray_badge_bg']],
+            'Critical' => [$palette['white'], $palette['red_badge']],
+            'Normal'   => [$palette['white'], $palette['green_badge']],
+            default    => [$palette['white'], $palette['gray_badge']],
         };
     }
 
