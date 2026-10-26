@@ -346,6 +346,7 @@
         }
 
         async function fetchApiSirens() {
+            if (!window.sirenApiConfigured) return;
             try {
                 const response = await fetch('{{ route("settings.api.fetch") }}?path=/api/Data/Sirens&connection_name=Siren', {
                     method: 'GET',
@@ -408,7 +409,7 @@
                 if (!latitude || !longitude) return;
 
                 const isOnline = !!status;
-                const isDoorOpen = !!is_door_open;
+                const isDoorOpen = isOnline && !!is_door_open;
                 const cleanBeaconName = getDeviceName(beacon, 'Beacon');
 
                 let icon;
@@ -577,6 +578,7 @@
         }
 
         window.updateBeaconStatus = function(beaconId, isOnline, isDoorOpen) {
+            isDoorOpen = !!isOnline && !!isDoorOpen;
             const marker = beaconMarkers[beaconId];
             if (!marker) return;
             

@@ -17,7 +17,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     const csrfToken = window.serialConfig?.csrfToken;
     const logUrl = window.serialConfig?.logUrl;
-    const socket = io(window.serialConfig?.socketUrl || 'http://172.0.6.250:3123');
+    if (typeof window.io !== 'function') {
+        els.liveIndicator.textContent = 'Serial backend unavailable';
+        els.sendBtn.disabled = true;
+        console.warn('Start the serial backend and reload this page to enable serial communication.');
+        return;
+    }
+    const serialUrl = window.serialConfig?.socketUrl || window.serialBackendUrl;
+    const socket = io(serialUrl);
 
     const escapeHtml = unsafe => unsafe.replace(/[&<>"']/g, m => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
@@ -443,7 +450,7 @@ socket.on('data', line => {
                     console.error(`[Door Status] Failed to update beacon ${beaconId} door status:`, err);
                 });
         }
-            const serviceModeMatch = line.match(/SlaveReply-> ID[:\s]*(\d+)\s+Service mode activated\./i);
+            const serviceModeMatch = line.match(/SlaveReply\s*->\s*ID\s*[:=]?\s*(\d+)\s+Service\s+mode\s+activated\.?/i);
             if (serviceModeMatch) {
                 console.log('[Socket] Service mode match FOUND for beacon', serviceModeMatch[1]);
                 updateDoorStatus(serviceModeMatch[1], false);
@@ -460,7 +467,7 @@ socket.on('data', line => {
         if (!text) return;
         log('info', `Sending: ${text}`);
         try {
-            const res = await fetch('http://172.0.6.250:3123/api/send', {
+            const res = await fetch(`${serialUrl}/api/send`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-Serial-Token': window.serialToken },
                 body: JSON.stringify({ data: text })
@@ -496,6 +503,7 @@ socket.on('data', line => {
     ];
 
     function setBeaconOffline(beaconId) {
+        window.clearOfflineBeaconDoor?.(beaconId);
         const btn = document.querySelector(`.beacon-item[data-beacon-id="${beaconId}"]`);
         if (!btn) return;
 
@@ -687,17 +695,19 @@ socket.on('data', line => {
     function updateDoorStatus(beaconId, isDoorOpen) {
         console.log(`[Door Status] Updating beacon ${beaconId} door status to:`, isDoorOpen ? 'OPEN' : 'CLOSED');
 
+        // Acknowledge locally without waiting for Pusher or the database request.
+        window.updateDoorStatus?.(beaconId, isDoorOpen);
         const beaconBtn = document.querySelector(`.beacon-item[data-beacon-id="${beaconId}"]`);
         if (beaconBtn) {
-            const doorIcon = beaconBtn.querySelector('svg:last-child');
-            if (doorIcon) {
-                if (isDoorOpen) {
-                    doorIcon.classList.add('text-munti-red-0');
-                } else {
-                    doorIcon.classList.remove('text-munti-red-0');
-                }
+            beaconBtn.setAttribute('data-door-open', String(isDoorOpen));
+            const doorIcon = beaconBtn.querySelector('.door-icon');
+            if (doorIcon && !isDoorOpen) {
+                doorIcon.classList.remove('text-munti-red-0', 'text-red-500');
+                doorIcon.classList.add('text-gray-900');
             }
+            window.beaconMap?.updateMarker?.(beaconId, beaconBtn.classList.contains('online-item'), isDoorOpen);
         }
+        if (!isDoorOpen) window.removeOpenDoor?.(beaconId);
 
         fetch('/settings/beacons/door-status', {
             method: 'POST',

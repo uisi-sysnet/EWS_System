@@ -3,6 +3,19 @@
 @include('layouts.topbar')
 
 <script>
+    // Reset the displayed door state when connectivity is lost; do not send a hardware command.
+    window.clearOfflineBeaconDoor = function(beaconId) {
+        document.querySelectorAll(`.beacon-item[data-beacon-id="${beaconId}"]`).forEach(beacon => {
+            beacon.setAttribute('data-door-open', 'false');
+            const icon = beacon.querySelector('.door-icon');
+            if (icon) {
+                icon.classList.remove('text-munti-red-0', 'text-red-500');
+                icon.classList.add('text-gray-900');
+            }
+        });
+        window.removeOpenDoor?.(beaconId);
+        window.beaconMap?.updateMarker?.(beaconId, false, false);
+    };
     window.sirenLocations = <?= json_encode(
         $sirens->mapWithKeys(function ($siren) {
             return [$siren->oid => $siren->location?->location_name ?? $siren->group ?? 'Unknown'];
@@ -124,7 +137,7 @@
         $beacons->mapWithKeys(function ($beacon) {
             return [$beacon->beacon_id => [
                 'name' => $beacon->name ?? 'Unnamed Beacon',
-                'is_door_open' => $beacon->is_door_open ?? false
+                'is_door_open' => $beacon->status && $beacon->is_door_open
             ]];
         })
     ) ?>;
@@ -666,7 +679,7 @@ function restoreOriginal(el) {
 
             beacons.forEach(beacon => {
                 const isOnline = beacon.status;
-                const isDoorOpen = beacon.is_door_open || false;
+                const isDoorOpen = !!isOnline && !!beacon.is_door_open;
                 const displayGroup = beacon.location?.location_name || beacon.group || 'Unknown';
 
                 const button = document.createElement('button');
@@ -835,6 +848,7 @@ function restoreOriginal(el) {
         const CACHE_DURATION = 1000 * 3; // 3 seconds cache duration
 
         async function fetchDeviceStatus(force = false) {
+            if (!window.sirenApiConfigured) return;
             const now = Date.now();
             if (!force && cachedDeviceStatus && (now - lastFetchTime) < CACHE_DURATION) {
                 console.log('Using cached device status');
@@ -879,6 +893,12 @@ function restoreOriginal(el) {
 
         // Optimized sirens loading with merged API and DB data, and better error handling
         async function loadSirensFromAPI(showLoading = true) {
+            if (!window.sirenApiConfigured) {
+                if (sirensContainer) {
+                    sirensContainer.innerHTML = '<div class="col-span-full text-center py-10 text-munti-black-0 text-sm italic">No sirens added yet</div>';
+                }
+                return;
+            }
             if (!sirensContainer) return;
 
             if (showLoading && sirensContainer.children.length === 0) {
@@ -942,7 +962,7 @@ function restoreOriginal(el) {
                 }
 
                 if (apiSirens.length === 0 && dbOnlySirens.length === 0) {
-                    sirensContainer.innerHTML = '<div class="col-span-full text-center p-10 text-gray-600 dark:text-munti-red-0 text-sm italic">No sirens found</div>';
+                    sirensContainer.innerHTML = '<div class="col-span-full text-center py-10 text-munti-black-0 text-sm italic">No sirens added yet</div>';
                     return;
                 }
                 
@@ -1146,7 +1166,7 @@ function restoreOriginal(el) {
                 retryDelayMs = 300
             } = options;
             
-            const baseUrl = window.serialConfig?.socketUrl || 'http://172.0.6.250:3123';
+            const baseUrl = window.serialConfig?.socketUrl || window.serialBackendUrl;
 
             console.log(`[sendCommand] Sending: ${command}`);
             
@@ -1298,6 +1318,9 @@ function restoreOriginal(el) {
 
         // Helper function to send siren activation with error handling
         async function activateSiren(sirenOid, signalOid, volume) {
+            if (!window.sirenApiConfigured) {
+                throw new Error('Siren API is not configured. Local beacon controls are still available.');
+            }
             try {
                 const payload = {
                     signal: signalOid,
@@ -1338,6 +1361,9 @@ function restoreOriginal(el) {
 
         // Helper function to send siren deactivation with error handling
         async function deactivateSiren(sirenOid) {
+            if (!window.sirenApiConfigured) {
+                throw new Error('Siren API is not configured. Local beacon controls are still available.');
+            }
             try {
                 const payload = { sirens: [sirenOid] };
                 
@@ -1797,7 +1823,7 @@ function restoreOriginal(el) {
         window.serialConfig = {
             logUrl: "{{ route('logs.store') }}",
             csrfToken: "{{ csrf_token() }}",
-            socketUrl: "http://172.0.6.250:3123"
+            socketUrl: window.serialBackendUrl
         };
 
         // Initialize Pusher and Echo for real-time updates
@@ -1843,6 +1869,10 @@ function restoreOriginal(el) {
             })
             .listen('beacon.door.updated', (data) => {
                 console.log('Door update via Pusher:', data);
+                if (document.querySelector(`.beacon-item[data-beacon-id="${data.beacon_id}"].offline-item`)) {
+                    window.clearOfflineBeaconDoor(data.beacon_id);
+                    return;
+                }
                 const beaconBtn = document.querySelector(`.beacon-item[data-beacon-id="${data.beacon_id}"]`);
                 if (!beaconBtn) return;
 
@@ -1852,7 +1882,7 @@ function restoreOriginal(el) {
                         doorIcon.classList.add('text-munti-red-0');
                         doorIcon.classList.remove('text-gray-900');
                     } else {
-                        doorIcon.classList.remove('text-munti-red-0');
+                        doorIcon.classList.remove('text-munti-red-0', 'text-red-500');
                         doorIcon.classList.add('text-gray-900');
                     }
                 }
@@ -1877,6 +1907,7 @@ function restoreOriginal(el) {
 
         // Function to update beacon status in the UI
         function updateBeaconStatus(beaconId, isOnline) {
+            if (!isOnline) window.clearOfflineBeaconDoor(beaconId);
             const beaconElements = document.querySelectorAll(`.beacon-item[data-beacon-id="${beaconId}"]`);
 
             beaconElements.forEach(beacon => {
@@ -1958,6 +1989,10 @@ function restoreOriginal(el) {
 
         // Function to update door status in the UI
         function updateDoorStatus(beaconId, isDoorOpen) {
+            if (document.querySelector(`.beacon-item[data-beacon-id="${beaconId}"].offline-item`)) {
+                window.clearOfflineBeaconDoor(beaconId);
+                return;
+            }
             const beaconBtn = document.querySelector(`.beacon-item[data-beacon-id="${beaconId}"]`);
             if (!beaconBtn) return;
 
@@ -1967,7 +2002,7 @@ function restoreOriginal(el) {
                     doorIcon.classList.remove('text-gray-900');
                     doorIcon.classList.add('text-munti-red-0');
                 } else {
-                    doorIcon.classList.remove('text-munti-red-0');
+                    doorIcon.classList.remove('text-munti-red-0', 'text-red-500');
                     doorIcon.classList.add('text-gray-900');
                 }
             }
@@ -1986,6 +2021,7 @@ function restoreOriginal(el) {
 
         // Function to fetch device status from the server and update the UI
         async function fetchDeviceStatus() {
+            if (!window.sirenApiConfigured) return;
             try {
                 const response = await fetch('{{ route("settings.api.fetch") }}?path=/api/Data/Status&connection_name=Siren', {
                     headers: {
@@ -2532,12 +2568,17 @@ function restoreOriginal(el) {
 
         // Functions to add or remove open doors from the map and update the modal
         function addOpenDoor(beaconId, beaconName) {
+            beaconId = String(beaconId);
+            if (document.querySelector(`.beacon-item[data-beacon-id="${beaconId}"].offline-item`)) return;
             if (!beaconId) return;
             openDoorsMap.set(beaconId, beaconName || 'Unknown Beacon');
             updateDoorPopup();
         }
 
         function removeOpenDoor(beaconId) {
+            beaconId = String(beaconId);
+            clearTimeout(pendingDoorCommands.get(beaconId));
+            pendingDoorCommands.delete(beaconId);
             if (!beaconId) return;
             if (openDoorsMap.delete(beaconId)) updateDoorPopup();
         }
@@ -2547,41 +2588,31 @@ function restoreOriginal(el) {
         window.addOpenDoor = addOpenDoor;
         window.removeOpenDoor = removeOpenDoor;
 
-        // Function to send close door command to the Arduino, with optimistic UI update and error handling
+        const pendingDoorCommands = new Map();
         window.sendCloseDoorCommand = async function(beaconId) {
-            if (!beaconId) return;
-
-            const beaconName = openDoorsMap.get(beaconId);
-            if (!beaconName) {
-                showToast(`Beacon ${beaconId} not found in open doors list`, 'error');
-                return;
+            beaconId = String(beaconId);
+            if (!/^\d+$/.test(beaconId) || !openDoorsMap.has(beaconId) || pendingDoorCommands.has(beaconId)) return;
+            const button = doorListContent.querySelector(`[data-beacon-id="${beaconId}"]`);
+            pendingDoorCommands.set(beaconId, null);
+            if (button) {
+                button.disabled = true;
+                button.textContent = 'Sending...';
             }
-
-            const wasRemoved = openDoorsMap.delete(beaconId);
-            if (wasRemoved) updateDoorPopup();
-
-            const command = `<id=${beaconId};com=serv>`;
-
-            if (typeof window.sendCommandToArduino === 'function') {
-                try {
-                    await window.sendCommandToArduino(command);
-                    if (window.logToTerminal) {
-                        window.logToTerminal(`Sending: ${command}`, 'info');
-                    }
-                } catch (err) {
-                    console.error('Failed to send close command:', err);
-                    if (wasRemoved) {
-                        openDoorsMap.set(beaconId, beaconName);
-                        updateDoorPopup();
-                    }
-                }
-            } else {
-                console.error('sendCommandToArduino not available');
-                if (wasRemoved) {
-                    openDoorsMap.set(beaconId, beaconName);
+            try {
+                if (typeof window.sendCommandToArduino !== 'function') throw new Error('Serial communication is not ready');
+                await window.sendCommandToArduino(`<id=${beaconId};com=serv>`);
+                // The reply may arrive before the HTTP request completes.
+                if (!pendingDoorCommands.has(beaconId)) return;
+                if (button) button.textContent = 'Waiting for controller...';
+                pendingDoorCommands.set(beaconId, setTimeout(() => {
+                    pendingDoorCommands.delete(beaconId);
                     updateDoorPopup();
-                }
-                showToast('Communication error: Arduino not ready', 'error');
+                    showToast('No confirmation received. Check the beacon and try again.', 'warning');
+                }, 15000));
+            } catch (err) {
+                pendingDoorCommands.delete(beaconId);
+                updateDoorPopup();
+                showToast(`Close Door failed: ${err.message}`, 'error');
             }
         };
 
@@ -2619,8 +2650,8 @@ function restoreOriginal(el) {
     
 </script>
 <!-- defer: serial.js only calls io() on DOMContentLoaded, so a slow Pi can't stop the page from drawing -->
-<script defer src="http://172.0.6.250:3123/socket.io/socket.io.js"></script>
-<script src="{{ asset('js/serial.js') }}"></script>
+<script defer src="{{ config('services.serial.url') }}/socket.io/socket.io.js"></script>
+<script src="{{ asset('js/serial.js') }}?v={{ filemtime(public_path('js/serial.js')) }}"></script>
 
 <!-- Telegram connection status indicator -->
 <div id="telegramStatus" class="fixed bottom-3 left-3 z-40 flex items-center gap-2 bg-white dark:bg-gray-800 rounded-full shadow-md border border-gray-200 dark:border-gray-700 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300">
