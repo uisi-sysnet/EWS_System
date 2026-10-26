@@ -682,7 +682,7 @@ window.dbSirens = <?= json_encode(
         }
 
         async function sendCommandToArduino(command) {
-            const baseUrl = window.serialConfig?.socketUrl || 'http://localhost:3123';
+            const baseUrl = window.serialConfig?.socketUrl || 'http://172.0.6.250:3123';
             try {
                 const response = await fetch(`${baseUrl}/api/send`, {
                     method: 'POST',
@@ -1374,7 +1374,7 @@ setTimeout(logAPIConfiguration, 1000);
         window.serialConfig = {
             logUrl: "{{ route('logs.store') }}",
             csrfToken: "{{ csrf_token() }}",
-            socketUrl: "http://localhost:3123"
+            socketUrl: "http://172.0.6.250:3123"
         };
 
         window.Pusher = Pusher;

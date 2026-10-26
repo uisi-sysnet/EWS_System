@@ -59,7 +59,7 @@
                             <!-- Base URL -->
                             <div class="space-y-1">
                                 <label for="baseUrl" class="block text-xs text-prussian-blue dark:text-lavender-grey">Base URL</label>
-                                <input type="url" id="baseUrl" value="https://172.0.6.189:44383/"
+                                <input type="url" id="baseUrl" value="https://172.0.6.250:44383/"
                                     class="w-full px-3 py-1.5 text-sm bg-white dark:bg-gray-700 border border-slate-grey/30 dark:border-blue-slate/40 rounded-md font-mono focus:ring-2 focus:ring-regal-navy dark:focus:ring-prussian-blue focus:border-regal-navy dark:focus:border-prussian-blue outline-none transition-all text-prussian-blue dark:text-lavender-grey placeholder-slate-grey dark:placeholder-lavender-grey/50"
                                     placeholder="https://example.com/api/">
                             </div>
@@ -261,7 +261,7 @@
 
         els.clearBtn.addEventListener('click', () => {
             els.connectionName.value = '';
-            els.baseUrl.value = 'https://172.0.6.189:44383/';
+            els.baseUrl.value = 'https://172.0.6.250:44383/';
             els.apiKeyName.value = 'X-API-KEY';
             els.apiKeyValue.value = '';
             document.querySelector('input[name="apiKeyPlacement"][value="header"]').checked = true;

@@ -48,7 +48,7 @@ return [
     // Must match SERIAL_API_TOKEN in the serial-backend environment on the Pi.
     'serial' => [
         'token' => env('SERIAL_API_TOKEN'),
-        'url' => rtrim(env('SERIAL_BACKEND_URL', 'http://127.0.0.1:3123'), '/'),
+        'url' => rtrim(env('SERIAL_BACKEND_URL', 'http://172.0.6.250:3123'), '/'),
     ],
 
 ];
